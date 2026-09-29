@@ -8,13 +8,16 @@ import com.pathplanner.lib.config.PIDConstants;
 import edu.wpi.first.hal.FRCNetComm.tInstances;
 import edu.wpi.first.hal.FRCNetComm.tResourceType;
 import edu.wpi.first.hal.HAL;
+import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
-import edu.wpi.first.math.kinematics.SwerveDriveOdometry;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
+import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.networktables.StructArrayPublisher;
+import edu.wpi.first.networktables.StructPublisher;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import frc.robot.Constants.DriveConstants;
@@ -42,26 +45,44 @@ public class DriveSubsystem extends SubsystemBase {
       DriveConstants.kRearRightTurningCanId,
       DriveConstants.kBackRightChassisAngularOffset);
 
+  private final SwerveDrivePoseEstimator m_poseEstimator;
+  private final StructArrayPublisher<SwerveModuleState> m_publisher;
+  private final StructPublisher<Pose2d> m_posePub;
+  private final StructArrayPublisher<SwerveModuleState> m_actualStatesPub;
+
   // The gyro sensor
   private final JaegernautsNavXGyro m_gyro = JaegernautsNavXGyro.getInstance();
-
-  // Odometry class for tracking robot pose
-  SwerveDriveOdometry m_odometry = new SwerveDriveOdometry(
-      DriveConstants.kDriveKinematics,
-      Rotation2d.fromDegrees(m_gyro.getAngle()),
-      new SwerveModulePosition[] {
-          m_frontLeft.getPosition(),
-          m_frontRight.getPosition(),
-          m_rearLeft.getPosition(),
-          m_rearRight.getPosition()
-      });
 
   // CLAUDE BELOW
 
   /** Creates a new DriveSubsystem. */
   public DriveSubsystem() {
+
+
     // Usage reporting for MAXSwerve template
     HAL.report(tResourceType.kResourceType_RobotDrive, tInstances.kRobotDriveSwerve_MaxSwerve);
+
+    m_publisher = NetworkTableInstance.getDefault()
+        .getStructArrayTopic("MyStates", SwerveModuleState.struct).publish();
+
+    // This puts the data in the "SmartDashboard" folder automatically
+    m_posePub = NetworkTableInstance.getDefault()
+        .getStructTopic("SmartDashboard/RobotPose", Pose2d.struct).publish();
+
+    m_actualStatesPub = NetworkTableInstance.getDefault()
+        .getStructArrayTopic("SmartDashboard/ActualStates", SwerveModuleState.struct).publish();
+
+    m_poseEstimator = new SwerveDrivePoseEstimator(
+        DriveConstants.kDriveKinematics,
+        Rotation2d.fromDegrees(-m_gyro.getAngle()),
+        new SwerveModulePosition[] {
+            m_frontLeft.getPosition(),
+            m_frontRight.getPosition(),
+            m_rearLeft.getPosition(),
+            m_rearRight.getPosition()
+        },
+        new Pose2d() // Initial pose
+    );
 
     // Load the RobotConfig from the GUI settings
     RobotConfig config;
@@ -79,8 +100,8 @@ public class DriveSubsystem extends SubsystemBase {
         this::getRobotRelativeSpeeds,
         (speeds, feedforwards) -> driveRobotRelative(speeds),
         new PPHolonomicDriveController(
-            new PIDConstants(2.5, 0.0, 0.0), // Translation PID constants
-            new PIDConstants(0, 0.0, 0.0) // Rotation PID constants
+            new PIDConstants(5, 0.0, 0.0), // Translation PID constants
+            new PIDConstants(10, 0.0, 0.0) // Rotation PID constants
         ),
         config,
         () -> {
@@ -97,17 +118,42 @@ public class DriveSubsystem extends SubsystemBase {
 
   @Override
   public void periodic() {
-    SmartDashboard.putNumber("Gyro", m_gyro.getAngle());
+    SmartDashboard.putNumber("Actual Robot Speed", m_rearLeft.getState().speedMetersPerSecond);
 
-    // Update the odometry in the periodic block
-    m_odometry.update(
-        Rotation2d.fromDegrees(m_gyro.getAngle()),
+    // 1. Update the Pose Estimator
+    m_poseEstimator.update(
+        Rotation2d.fromDegrees(-m_gyro.getAngle()),
         new SwerveModulePosition[] {
-            m_frontLeft.getPosition(),
-            m_frontRight.getPosition(),
-            m_rearLeft.getPosition(),
-            m_rearRight.getPosition()
+            m_frontLeft.getPosition(), m_frontRight.getPosition(),
+            m_rearLeft.getPosition(), m_rearRight.getPosition()
         });
+
+    // // 2. Handle Limelight (Standard call)
+    // // 1. Send your current Gyro angle to the Limelight
+    // // This tells MegaTag2 which way the robot is facing so it doesn't get confused
+    // LimelightHelpers.SetRobotOrientation("limelight-main",
+    //     m_poseEstimator.getEstimatedPosition().getRotation().getDegrees(),
+    //     0, 0, 0, 0, 0);
+
+    // // 2. Read the MegaTag2 Pose (Notice the new method name!)
+    // LimelightHelpers.PoseEstimate mt2 = LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2("limelight-main");
+
+    // if (mt2.tagCount > 0) {
+    //   m_poseEstimator.addVisionMeasurement(mt2.pose, mt2.timestampSeconds);
+    // }
+
+    // 3. THE NORMAL WAY: Push to NetworkTables
+    Pose2d currentPose = m_poseEstimator.getEstimatedPosition();
+    m_posePub.set(currentPose);
+
+    SwerveModuleState[] states = new SwerveModuleState[] {
+        m_frontLeft.getState(), m_frontRight.getState(),
+        m_rearLeft.getState(), m_rearRight.getState()
+    };
+    m_actualStatesPub.set(states);
+
+    // Keep your gyro on the dashboard for a quick sanity check
+    SmartDashboard.putNumber("Gyro Angle", -m_gyro.getAngle());
   }
 
   /**
@@ -116,7 +162,7 @@ public class DriveSubsystem extends SubsystemBase {
    * @return The pose.
    */
   public Pose2d getPose() {
-    return m_odometry.getPoseMeters();
+    return m_poseEstimator.getEstimatedPosition();
   }
 
   /**
@@ -125,8 +171,8 @@ public class DriveSubsystem extends SubsystemBase {
    * @param pose The pose to which to set the odometry.
    */
   public void resetOdometry(Pose2d pose) {
-    m_odometry.resetPosition(
-        Rotation2d.fromDegrees(m_gyro.getAngle()),
+    m_poseEstimator.resetPosition(
+        Rotation2d.fromDegrees(-m_gyro.getAngle()),
         new SwerveModulePosition[] {
             m_frontLeft.getPosition(),
             m_frontRight.getPosition(),
@@ -248,7 +294,7 @@ public class DriveSubsystem extends SubsystemBase {
    * @return The turn rate of the robot, in degrees per second
    */
   public double getTurnRate() {
-    return m_gyro.getRate() * (DriveConstants.kGyroReversed ? -1.0 : 1.0);
+    return -m_gyro.getRate() * (DriveConstants.kGyroReversed ? -1.0 : 1.0);
   }
 
   public void ResetGyro() {

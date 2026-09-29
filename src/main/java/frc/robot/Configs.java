@@ -6,7 +6,6 @@ import com.revrobotics.spark.FeedbackSensor;
 import com.revrobotics.spark.config.SparkBaseConfig.IdleMode;
 
 import frc.robot.Constants.IndexerConstants;
-import frc.robot.Constants.IntakeConstants;
 import frc.robot.Constants.ModuleConstants;
 
 public final class Configs {
@@ -23,7 +22,8 @@ public final class Configs {
                                         .forwardSoftLimitEnabled(false)
                                         .reverseSoftLimitEnabled(false);
                         shooterConfig.closedLoop
-                                        .p(0.00022).feedForward.kV(0.00017);
+                                        .outputRange(-1, 1)
+                                        .p(0.00022).feedForward.kV(0.00209).kS(0.015);
                         // .feedForward.kV(0.0000001);
 
                         positionTurntableConfig.encoder
@@ -45,36 +45,49 @@ public final class Configs {
         public static final class IndexerConfigs {
                 public static final SparkFlexConfig mainConfig = new SparkFlexConfig();
                 public static final SparkFlexConfig followerConfig = new SparkFlexConfig();
-                public static final SparkFlexConfig serializerConfig = new SparkFlexConfig();
+                public static final SparkFlexConfig blenderConfig = new SparkFlexConfig();
+                public static final SparkFlexConfig wheelConfig = new SparkFlexConfig();
 
                 static {
                         mainConfig
-                                        .smartCurrentLimit(60);
+                                        .smartCurrentLimit(40);
                         mainConfig.softLimit
                                         .forwardSoftLimitEnabled(false)
                                         .reverseSoftLimitEnabled(false);
                         mainConfig.encoder
-                                        .positionConversionFactor(0.25)
-                                        .velocityConversionFactor(0.25);
+                                        .positionConversionFactor(1)
+                                        .velocityConversionFactor(1);
                         mainConfig.closedLoop
                                         .outputRange(-1, 1)
-                                        .p(0.0001).feedForward.kV(0.0002);
+                                        .p(0.0003).feedForward.kV(0.00183).kS(0.0);
 
                         followerConfig
                                         .apply(mainConfig)
                                         .follow(IndexerConstants.canId, true);
 
-                        serializerConfig
-                                        .smartCurrentLimit(60);
-                        serializerConfig.softLimit
+                        blenderConfig
+                                        .smartCurrentLimit(40);
+                        blenderConfig.softLimit
                                         .forwardSoftLimitEnabled(false)
                                         .reverseSoftLimitEnabled(false);
-                        serializerConfig.encoder
+                        blenderConfig.encoder
                                         .positionConversionFactor(0.25) // Assuming the serializer uses the same ratio
                                         .velocityConversionFactor(0.25);
-                        serializerConfig.closedLoop
+                        blenderConfig.closedLoop
                                         .outputRange(-1, 1)
                                         .p(0.0003).feedForward.kV(0.0003);
+                        
+                        wheelConfig
+                                .smartCurrentLimit(40);
+                        wheelConfig.softLimit
+                                .forwardSoftLimitEnabled(false)
+                                .reverseSoftLimitEnabled(false);
+                        wheelConfig.encoder
+                                .positionConversionFactor(1)
+                                .velocityConversionFactor(1);
+                        wheelConfig.closedLoop
+                                .outputRange(-1, 1)
+                                .p(0.0003).feedForward.kV(0.00188).kS(0);
                 }
         }
 
@@ -84,21 +97,26 @@ public final class Configs {
 
                 static {
                         mainConfig
-                                        .smartCurrentLimit(60);
+                                        .smartCurrentLimit(40);
                         mainConfig.softLimit
                                         .forwardSoftLimitEnabled(false)
                                         .reverseSoftLimitEnabled(false);
+                        mainConfig.encoder
+                                        .velocityConversionFactor(1)
+                                        .positionConversionFactor(1);
                         mainConfig.closedLoop
                                         .outputRange(-1, 1)
-                                        .p(0.000118)
-                                                        // .i(0.00004)
-                                                        // .iZone(50)
-                                                        .feedForward
-                                        .kV(0.00018);
-                        // .feedForward.kV(0.0000001);
+                                        .feedbackSensor(FeedbackSensor.kPrimaryEncoder)
+                                        .p(0.00025).feedForward.kV(0.00195).kS(0);
 
-                        invertedConfig
-                                        .follow(IntakeConstants.canId, true);
+                        // invertedConfig
+                        //                 .apply(mainConfig);
+                        // invertedConfig.encoder
+                        //                 .velocityConversionFactor(1)
+                        //                 .positionConversionFactor(1);
+                        // invertedConfig.closedLoop
+                        //                 .outputRange(-0.9, 0.9)
+                        //                 .p(0.0008).feedForward.kV(0.00235).kS(.04);
                 }
         }
 
@@ -111,7 +129,7 @@ public final class Configs {
                         double drivingFactor = ModuleConstants.kWheelDiameterMeters * Math.PI
                                         / ModuleConstants.kDrivingMotorReduction;
                         double turningFactor = 2 * Math.PI;
-                        double drivingVelocityFeedForward = 1 / ModuleConstants.kDriveWheelFreeSpeedRps;
+                        double drivingVelocityFeedForward = 2;
 
                         drivingConfig
                                         .idleMode(IdleMode.kBrake)
@@ -121,7 +139,7 @@ public final class Configs {
                                         .velocityConversionFactor(drivingFactor / 60.0); // meters per second
                         drivingConfig.closedLoop
                                         .feedbackSensor(FeedbackSensor.kPrimaryEncoder)
-                                        .pid(0.04, 0, 0)
+                                        .pid(0.1, 0, 0)
                                         .outputRange(-1, 1).feedForward.kV(drivingVelocityFeedForward);
 
                         turningConfig
